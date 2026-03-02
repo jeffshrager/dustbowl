@@ -1,4 +1,17 @@
 #!/usr/bin/env python
+# QUICK START (copy/paste into shell):
+#
+#   source /Users/jeffshrager/opt/anaconda3/etc/profile.d/conda.sh
+#   conda activate test
+#
+#   python plains_ca.py                            # 200 steps, show plot + save PNG
+#   python plains_ca.py --steps 500               # longer run
+#   python plains_ca.py --steps 200 --animate     # also save animated GIF
+#   python plains_ca.py --steps 200 --record-every 10 --animate  # coarser GIF frames
+#   python plains_ca.py --seed 7                  # different random seed
+#
+# Output always goes to ./results/YYYYMMDDhhmm_snapshot.png (and _animation.gif).
+
 """
 Great Plains Population Flux  —  Cellular Automaton Model
 ==========================================================
@@ -354,6 +367,38 @@ class GreatPlainsCA:
                 damage = severity * np.exp(-2.0 * dist_sq)
                 self.resources = np.maximum(0.0, self.resources * (1.0 - damage))
 
+    # ── Population flux ──────────────────────────────────────────────────────
+    # _flux is the mathematical heart of the CA.  It computes, for every cell
+    # simultaneously, how much population leaves and where it goes.
+    #
+    # ATTRACTIVENESS & WEIGHTS
+    #   For each of the four cardinal neighbours (N/S/E/W), we look up that
+    #   neighbour's attractiveness value.  We then compute a softmax weight:
+    #     w = exp(drift_strength * attractiveness)
+    #   Higher drift_strength makes populations more decisively chase the best
+    #   neighbour; lower values produce more diffusive, random-walk-like movement.
+    #   Weights for invalid neighbours (mountains, grid boundary) are zeroed so
+    #   population can never flow into them.  The weights are normalised so the
+    #   four fractions f_N/S/E/W sum to 1, guaranteeing mass conservation.
+    #
+    # OUTFLOW MAGNITUDE
+    #   Two terms contribute to how much a cell sends out:
+    #     base_flux * pop          — a baseline "restlessness" fraction each step
+    #     pressure_rate * excess   — extra outflow proportional to how far the
+    #                                population exceeds carrying_cap
+    #   The sum is capped at the cell's current population so it can never go
+    #   negative.  Cells with no valid neighbours are forced to zero outflow.
+    #
+    # INFLOW
+    #   The outflow arrays (out_N, out_S, out_E, out_W) are shifted by one cell
+    #   in the appropriate direction to compute inflow at each destination.
+    #   For example, out_N[i,j] (population leaving (i,j) northward) becomes
+    #   inflow at (i-1,j), so in_S[:-1,:] = out_N[1:,:].
+    #
+    # The method returns the net delta (inflow - outflow) per cell.  Actual
+    # population arrays are updated by the callers (_update_wildlife/_update_humans)
+    # which add birth/death on top before writing back.
+
     def _flux(
         self,
         pop: np.ndarray,
@@ -426,6 +471,25 @@ class GreatPlainsCA:
 
         return (inflow - outflow) * mask
 
+    # ── Population & infrastructure updates ──────────────────────────────────
+    # These three methods apply _flux and then handle the non-movement dynamics.
+    #
+    # _update_wildlife — bison attractiveness is purely resource-driven.  After
+    #   flux, logistic birth/death is applied (growth slows as the local population
+    #   approaches carrying_cap).  Grazing then subtracts from resources in
+    #   proportion to local bison density, capped so resources never go negative.
+    #
+    # _update_humans — settler attractiveness is a weighted blend of resources and
+    #   existing infrastructure, reflecting that people follow both grass and trails.
+    #   Birth/death and resource consumption work the same way as wildlife.  Because
+    #   _update_wildlife runs first and grazes before _update_humans consumes, bison
+    #   and settlers compete implicitly for the same resource pool within each step.
+    #
+    # _update_infra — infrastructure is not a population; it has no flux.  Instead
+    #   it grows in proportion to how densely settled a cell is (hu_fraction =
+    #   humans / carrying_cap) and decays slowly when humans leave.  This means
+    #   towns persist for a while after a population exodus but eventually fade.
+
     def _update_wildlife(self) -> None:
         p = self.p
         wl = self.wildlife
@@ -470,6 +534,21 @@ class GreatPlainsCA:
         decay  = p["infra_decay_rate"]  * self.infra * (1.0 - hu_fraction)
         self.infra = np.clip(self.infra + growth - decay, 0.0, p["infra_max"]) * self.mask
 
+    # ── Simulation control ───────────────────────────────────────────────────
+    # step() is the master clock tick.  The update order matters: resources
+    # regenerate and climate events fire before any population moves, so
+    # populations are always responding to the current step's resource landscape,
+    # not last step's.  Wildlife updates before humans, so bison graze first and
+    # settlers see the already-depleted resource field.
+    #
+    # get_state() returns deep copies of all four dynamic arrays plus the current
+    # step counter.  Copies are essential — without them every history entry would
+    # be a reference to the same (ever-changing) arrays.
+    #
+    # run() is the main loop.  It records an initial snapshot at t=0, then steps
+    # forward, appending a snapshot every record_every steps.  The resulting
+    # self.history list is what the visualisation and animation code consume.
+
     def step(self) -> None:
         """Advance simulation by one time step."""
         self._regenerate_resources()
@@ -499,6 +578,19 @@ class GreatPlainsCA:
 
 
 # ─── Visualization ────────────────────────────────────────────────────────────
+# _to_rgba converts a 2-D data array into an RGBA image ready for imshow.
+# It normalises the data to [vmin, vmax], applies a named matplotlib colormap,
+# then overwrites mountain cells (mask == 0) with a fixed grey so they stand
+# out clearly regardless of the colormap used for the rest of the panel.
+#
+# _make_axes constructs the standard 2×3 figure layout using GridSpec and
+# returns all axes as a named dict so callers can address panels by name
+# rather than by position index.  The history panel spans the last two columns
+# of the bottom row to give the time-series plot more horizontal space.
+# history_r is a twin x-axis sharing the same x-axis as history but with an
+# independent right-hand y-axis used for the mean-resources line.  It is
+# created once here so that animation frames can clear and redraw it without
+# accidentally stacking up extra axes on each frame.
 
 _MOUNTAIN_GREY = np.array([0.40, 0.40, 0.40])   # RGB for imshow overlay
 
@@ -527,6 +619,22 @@ def _make_axes(fig: plt.Figure) -> dict:
         "history_r": ax_h.twinx(),      # right y-axis for resources
     }
 
+
+# plot_state renders the full 2×3 figure for a single simulation state.
+# It can be called standalone (passing no fig/ax_map, which creates a fresh
+# figure) or repeatedly by animate_history (passing the same fig/ax_map each
+# frame to update in place rather than creating a new window each time).
+#
+# The four spatial panels are driven by a data table (grid_panels) so that
+# adding or reordering panels only requires changing that list.  Each panel
+# gets its own colorbar with a fixed [vmin, vmax] scale so colours are
+# comparable across time steps.
+#
+# The history panel plots only the snapshots up to and including the current
+# state's step, so during animation it grows from left to right as the
+# simulation progresses.  A vertical dotted line marks the current step.
+# Mean resources are on the right y-axis (green) because their scale
+# (0–1.4) would dwarf the population curves if shared on the left axis.
 
 def plot_state(model: "GreatPlainsCA",
                state: dict | None = None,
@@ -612,6 +720,13 @@ def plot_state(model: "GreatPlainsCA",
     return fig, ax_map
 
 
+# animate_history drives FuncAnimation over the recorded history list.
+# A single figure and ax_map are created once before the animation starts;
+# each frame calls plot_state with the same fig/ax_map so panels are updated
+# in place.  If a save_path is given the animation is written to a GIF using
+# the Pillow writer and never displayed interactively; otherwise plt.show()
+# opens an interactive window.
+
 def animate_history(model: "GreatPlainsCA",
                     interval: int = 200,
                     save_path: str | None = None):
@@ -641,6 +756,12 @@ def animate_history(model: "GreatPlainsCA",
 
 
 # ─── CLI entry point ──────────────────────────────────────────────────────────
+# Parses three arguments: --steps (how long to run), --record-every (snapshot
+# interval, trading animation smoothness for memory), and --animate (whether
+# to produce a GIF in addition to the static snapshot).  A timestamped PNG
+# snapshot is always saved to results/; the GIF is only produced when
+# --animate is given.  The snapshot figure is reused for interactive display
+# (plt.show()) in the non-animate path to avoid rendering twice.
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Great Plains Population Flux CA")
