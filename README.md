@@ -25,8 +25,11 @@ All output goes to `./results/YYYYMMDDhhmm_<kind>.<ext>` automatically:
 
 | File | When produced |
 |---|---|
+| `…_params.json` | Every run — full parameter dict so results are traceable to their inputs |
 | `…_snapshot.png` | Every run |
 | `…_animation.gif` | When `--animate` is given |
+| `…_slides_params.json` | When `slides/gen_images.py` is run |
+| `…_slides_<kind>.png` | When `slides/gen_images.py` is run |
 
 ## Grid
 

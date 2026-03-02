@@ -17,6 +17,9 @@ python plains_ca.py --steps 200 --animate
 - `results/` — all output lands here, auto-created, timestamped `YYYYMMDDhhmm_<kind>.<ext>`
 - `README.md` — user-facing documentation
 - `CLAUDE.md` — this file
+- `slides/great_plains_ca.tex` — Beamer slide deck (12 slides); compiles with pdflatex or Overleaf
+- `slides/gen_images.py` — runs simulation, saves figs to `results/` with timestamps, copies to `slides/fig_*.png`
+- `slides/fig_*.png` — current slide figures (copies from results/; regenerate with gen_images.py)
 
 ## Architecture notes
 - All parameters in `PARAMS` dict at top of file
@@ -26,6 +29,12 @@ python plains_ca.py --steps 200 --animate
 - Visualization uses a 2×3 GridSpec; `ax_map` is a named dict (not a flat array)
   - Keys: `resources`, `wildlife`, `humans`, `infra`, `history`, `history_r`
   - `history_r` is a pre-created twinx — do NOT call `twinx()` inside the update loop
+
+## Results traceability
+- Every CLI run dumps `results/YYYYMMDDhhmm_params.json` (full PARAMS dict) before running
+- Slide figure runs dump `results/YYYYMMDDhhmm_slides_params.json`
+- Slide PNGs in results/ are named `YYYYMMDDhhmm_slides_<kind>.png`; copied to `slides/fig_<kind>.png`
+- To regenerate slide figures: `python slides/gen_images.py` from project root
 
 ## Code comments status
 - Block comments added to all sections (imports, PARAMS, terrain, init, resource
