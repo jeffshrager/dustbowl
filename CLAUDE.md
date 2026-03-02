@@ -16,6 +16,7 @@ python plains_ca.py --steps 200 --animate
 - `plains_ca.py` — single-file simulation + visualization
 - `results/` — all output lands here, auto-created, timestamped `YYYYMMDDhhmm_<kind>.<ext>`
 - `README.md` — user-facing documentation
+- `CLAUDE.md` — this file
 
 ## Architecture notes
 - All parameters in `PARAMS` dict at top of file
@@ -25,6 +26,12 @@ python plains_ca.py --steps 200 --animate
 - Visualization uses a 2×3 GridSpec; `ax_map` is a named dict (not a flat array)
   - Keys: `resources`, `wildlife`, `humans`, `infra`, `history`, `history_r`
   - `history_r` is a pre-created twinx — do NOT call `twinx()` inside the update loop
+
+## Code comments status
+- Block comments added to all sections (imports, PARAMS, terrain, init, resource
+  dynamics, _flux, population updates, simulation control, visualization, CLI)
+- TODO: finer-grained inline comments still needed inside the `_flux` method body
+  (agreed with user to do this in a future session)
 
 ## Known model behavior
 - Default params cause bison boom/crash in first ~100 steps (wildlife outgrazes resources)
