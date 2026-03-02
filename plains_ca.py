@@ -50,6 +50,7 @@ Outputs go to ./results/YYYYMMDDhhmm_<kind>.<ext> automatically.
 #     FuncAnimation — drives the frame-by-frame GIF export
 
 import argparse
+import json
 import os
 from datetime import datetime
 import numpy as np
@@ -776,6 +777,12 @@ if __name__ == "__main__":
 
     print("Initialising Great Plains CA …")
     model = GreatPlainsCA({"seed": args.seed})
+
+    # Dump parameters to JSON so every result set is traceable to its inputs
+    params_path = _results_path("params", "json")
+    with open(params_path, "w") as f:
+        json.dump(model.p, f, indent=2)
+    print(f"  Params    → {params_path}")
 
     print(f"Running {args.steps} steps …")
     model.run(args.steps, record_every=args.record_every)
